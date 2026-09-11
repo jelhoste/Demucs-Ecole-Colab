@@ -161,6 +161,50 @@
   }
   textarea{ resize: vertical; min-height: 40px; }
 
+  .field-suggest-wrap{ position: relative; display: flex; gap: 4px; }
+  .field-suggest-wrap input{ flex: 1; }
+  .suggest-caret{
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    width: 32px;
+    flex-shrink: 0;
+    cursor: pointer;
+    font-size: 0.75rem;
+  }
+  .suggest-caret:hover{ color: var(--brass); border-color: var(--brass-dim); }
+  .suggest-menu{
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    z-index: 30;
+    max-height: 190px;
+    overflow-y: auto;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .suggest-option{
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 0.82rem;
+    font-family: 'IBM Plex Mono', monospace;
+    cursor: pointer;
+  }
+  .suggest-option:last-child{ border-bottom: none; }
+  .suggest-option:hover{ background: rgba(192,153,106,0.1); color: var(--brass); }
+  .suggest-option.suggest-all{ color: var(--brass); font-family: 'IBM Plex Sans', sans-serif; font-style: italic; }
+  .suggest-empty{ padding: 10px; font-size: 0.8rem; color: var(--text-muted); font-style: italic; }
+
   .add-track-btn{
     width: 100%;
     background: var(--panel);
@@ -345,6 +389,39 @@ function updateTrack(id, field, value){
   if (t) t[field] = value;
 }
 
+function getFilenameFragments(filename){
+  if (!filename) return [];
+  const base = filename.replace(/\.[^/.]+$/, '');
+  return base.split('_').map(p => p.trim()).filter(Boolean);
+}
+
+function renderSuggestMenu(id, field, filename){
+  const base = (filename || '').replace(/\.[^/.]+$/, '');
+  const frags = getFilenameFragments(filename);
+  if (frags.length === 0){
+    return `<div class="suggest-empty">Choisissez d'abord un fichier</div>`;
+  }
+  let html = `<button type="button" class="suggest-option suggest-all" data-id="${id}" data-field="${field}" data-value="${escapeAttr(base)}">Tout — ${escapeHtml(base)}</button>`;
+  frags.forEach(f => {
+    html += `<button type="button" class="suggest-option" data-id="${id}" data-field="${field}" data-value="${escapeAttr(f)}">${escapeHtml(f)}</button>`;
+  });
+  return html;
+}
+
+function suggestField(t, field, label){
+  return `
+    <div class="field">
+      <label>${label}</label>
+      <div class="field-suggest-wrap">
+        <input type="text" data-id="${t.id}" data-field="${field}" value="${escapeAttr(t[field])}">
+        <button type="button" class="suggest-caret" data-id="${t.id}" data-field="${field}" title="Suggestions depuis le nom de fichier">▾</button>
+        <div class="suggest-menu" data-menu-id="${t.id}" data-menu-field="${field}" hidden>
+          ${renderSuggestMenu(t.id, field, t.filename)}
+        </div>
+      </div>
+    </div>`;
+}
+
 function render(){
   const container = document.getElementById('tracks-container');
   const emptyState = document.getElementById('empty-state');
@@ -364,26 +441,11 @@ function render(){
         <button class="remove-btn" data-id="${t.id}" title="Retirer ce morceau">✕</button>
       </div>
       <div class="field-grid">
-        <div class="field">
-          <label>Élève</label>
-          <input type="text" data-id="${t.id}" data-field="eleve" value="${escapeAttr(t.eleve)}">
-        </div>
-        <div class="field">
-          <label>Prof</label>
-          <input type="text" data-id="${t.id}" data-field="prof" value="${escapeAttr(t.prof)}">
-        </div>
-        <div class="field">
-          <label>Morceau</label>
-          <input type="text" data-id="${t.id}" data-field="morceau" value="${escapeAttr(t.morceau)}">
-        </div>
-        <div class="field">
-          <label>Artiste</label>
-          <input type="text" data-id="${t.id}" data-field="artiste" value="${escapeAttr(t.artiste)}">
-        </div>
-        <div class="field">
-          <label>Tonalité</label>
-          <input type="text" data-id="${t.id}" data-field="tonalite" value="${escapeAttr(t.tonalite)}">
-        </div>
+        ${suggestField(t, 'eleve', 'Élève')}
+        ${suggestField(t, 'prof', 'Prof')}
+        ${suggestField(t, 'morceau', 'Morceau')}
+        ${suggestField(t, 'artiste', 'Artiste')}
+        ${suggestField(t, 'tonalite', 'Tonalité')}
         <div class="field">
           <label>Date</label>
           <input type="date" data-id="${t.id}" data-field="date" value="${escapeAttr(t.date)}">
@@ -422,6 +484,30 @@ function escapeHtml(s){ return (s || '').replace(/[&<>]/g, c => ({'&':'&amp;','<
 function escapeAttr(s){ return escapeHtml(s).replace(/"/g, '&quot;'); }
 
 document.getElementById('add-track-btn').addEventListener('click', addTrack);
+
+document.getElementById('tracks-container').addEventListener('click', (e) => {
+  const caret = e.target.closest('.suggest-caret');
+  if (caret){
+    const wrap = caret.closest('.field-suggest-wrap');
+    const menu = wrap.querySelector('.suggest-menu');
+    const wasHidden = menu.hasAttribute('hidden');
+    document.querySelectorAll('.suggest-menu').forEach(m => m.setAttribute('hidden', ''));
+    if (wasHidden) menu.removeAttribute('hidden');
+    return;
+  }
+  const option = e.target.closest('.suggest-option');
+  if (option){
+    updateTrack(Number(option.dataset.id), option.dataset.field, option.dataset.value);
+    render();
+    return;
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.field-suggest-wrap')){
+    document.querySelectorAll('.suggest-menu').forEach(m => m.setAttribute('hidden', ''));
+  }
+});
 
 document.querySelectorAll('input[name=voca]').forEach(radio => {
   radio.addEventListener('change', () => {
